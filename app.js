@@ -722,3 +722,5 @@ document.addEventListener("DOMContentLoaded", () => {
   renderChips();
   loadData();
 });
+
+console.log("%c crafted by cathyfukq ", "color:#9aa0a6;font-style:italic;");
