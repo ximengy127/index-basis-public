@@ -181,7 +181,7 @@ function renderCards(rows) {
 function renderTable(rows) {
   const body = byId("latest-table-body");
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="12" class="empty-cell">等待 Windows 采集机发布首批数据</td></tr>';
+    body.innerHTML = '<tr><td colspan="13" class="empty-cell">等待 Windows 采集机发布首批数据</td></tr>';
     return;
   }
   body.innerHTML = rows.map((row) => `<tr>
@@ -193,6 +193,7 @@ function renderTable(rows) {
     <td class="${valueClass(row.priceChange)}">${fmt(row.priceChange, 2, true)}</td>
     <td class="${valueClass(row.priceChangePct)}">${fmtPercent(row.priceChangePct, 2, true)}</td>
     <td class="${valueClass(row.basis)}">${fmt(row.basis, 2, true)}</td>
+    <td class="${valueClass(row.premiumDiscountRatePct)}">${fmtPercent(row.premiumDiscountRatePct, 4, true)}</td>
     <td class="${valueClass(row.premiumDiscountChangePct)}">${fmtPercent(row.premiumDiscountChangePct, 2, true)}</td>
     <td class="adjusted ${valueClass(row.adjustedPremiumDiscountChangePct)}">${fmtPercent(row.adjustedPremiumDiscountChangePct, 2, true)}</td>
     <td>${fmtPercent(row.annualizedRate, 2, true)}</td>
