@@ -20,7 +20,7 @@ const DETAIL_METRICS = {
   futuresPrice: { label: "合约价格", digits: 2, suffix: "", baseline: null },
   priceChangePct: { label: "合约涨跌幅", digits: 2, suffix: "%", baseline: 0 },
   basis: { label: "基差", digits: 2, suffix: "", baseline: 0 },
-  premiumDiscountRatePct: { label: "非年化升贴水率", digits: 4, suffix: "%", baseline: 0 },
+  premiumDiscountRatePct: { label: "升贴水率", digits: 4, suffix: "%", baseline: 0 },
   premiumDiscountChangePct: { label: "升贴水率变动", digits: 2, suffix: "%", baseline: 0 },
   adjustedPremiumDiscountChangePct: { label: "升贴水率变动（剔除期内分红）", digits: 2, suffix: "%", baseline: 0 },
   annualizedRate: { label: "年化升贴水率", digits: 2, suffix: "%", baseline: 0 },
@@ -240,7 +240,7 @@ function contractDetailTable(rows) {
       <col style="width:10.5%"><col style="width:8%"><col style="width:10%"><col style="width:7.5%">
       <col style="width:6%"></colgroup><thead><tr>
       <th>日期</th><th>实际合约</th><th>合约价格</th><th>合约涨跌幅</th><th>基差</th>
-      <th>非年化升贴水率</th><th>升贴水率变动</th>
+      <th>升贴水率</th><th>升贴水率变动</th>
       <th>升贴水率变动<br>累计值</th>
       <th class="adjusted">升贴水率变动<br>（剔除期内分红）</th><th>年化升贴水率</th>
       <th class="adjusted">剔除分红年化率</th><th>期内分红</th><th>剩余天数</th>
@@ -281,7 +281,7 @@ function contractDetailChart(rows, metricKey, prefix, term) {
       `合约价格 ${fmt(row.futuresPrice, 2)}`,
       `合约涨跌幅 ${fmtPercent(row.priceChangePct, 2, true)}`,
       `基差 ${fmt(row.basis, 2, true)}`,
-      `非年化升贴水率 ${fmtPercent(row.premiumDiscountRatePct, 4, true)}`,
+      `升贴水率 ${fmtPercent(row.premiumDiscountRatePct, 4, true)}`,
       `升贴水率变动 ${fmtPercent(row.premiumDiscountChangePct, 2, true)}`,
       `升贴水率变动（剔除期内分红） ${fmtPercent(row.adjustedPremiumDiscountChangePct, 2, true)}`,
       `年化升贴水率 ${fmtPercent(row.annualizedRate, 2, true)}`,
@@ -555,7 +555,7 @@ function showChartTooltip(point, event = null, pin = false) {
   tooltip.textContent = `${point.dataset.date} · ${point.dataset.term} · `
     + `${metricLabel} ${point.dataset.value}`
     + (point.dataset.contract ? ` · 合约 ${point.dataset.contract}` : "")
-    + (point.dataset.rate ? ` · 非年化升贴水率 ${point.dataset.rate}` : "")
+    + (point.dataset.rate ? ` · 升贴水率 ${point.dataset.rate}` : "")
     + (point.dataset.details ? ` · ${point.dataset.details}` : "");
   tooltip.hidden = false;
 
