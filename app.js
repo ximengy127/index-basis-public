@@ -711,7 +711,7 @@ function bindEvents() {
   });
   byId("metric-select").addEventListener("change", (event) => {
     state.metric = event.target.value;
-    resetDateRangeForMetric();
+    // Preserve the user-selected date range when switching chart metrics.
     renderAll();
   });
 }
