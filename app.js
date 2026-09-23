@@ -20,7 +20,7 @@ const DETAIL_METRICS = {
   futuresPrice: { label: "合约价格", digits: 2, suffix: "", baseline: null },
   priceChangePct: { label: "合约涨跌幅", digits: 2, suffix: "%", baseline: 0 },
   basis: { label: "基差", digits: 2, suffix: "", baseline: 0 },
-  premiumDiscountRatePct: { label: "升贴水率", digits: 4, suffix: "%", baseline: 0 },
+  premiumDiscountRatePct: { label: "非年化升贴水率", digits: 4, suffix: "%", baseline: 0 },
   premiumDiscountChangePct: { label: "升贴水率变动", digits: 2, suffix: "%", baseline: 0 },
   adjustedPremiumDiscountChangePct: { label: "升贴水率变动（剔除期内分红）", digits: 2, suffix: "%", baseline: 0 },
   annualizedRate: { label: "年化升贴水率", digits: 2, suffix: "%", baseline: 0 },
@@ -71,12 +71,15 @@ function validatePayload(payload) {
     if (!PREFIXES.includes(row.prefix) || !TERMS.includes(row.term)) {
       throw new Error(`发现未知指数或期限：${row.prefix}/${row.term}`);
     }
-    if (row.dataSource !== "Wind 日频") {
+    if (!["Wind 日频", "米筐日频"].includes(row.dataSource)) {
       throw new Error(`发现未知数据来源：${row.dataSource || "空值"}`);
     }
-    const expectedDividendSource = ["IH", "IF"].includes(row.prefix) ? "RQ_FORECAST" : "WIND_ACTUAL";
-    if (row.periodDividend !== null && row.periodDividendSource !== expectedDividendSource) {
+    if (row.periodDividend !== null
+        && !["RQ_FORECAST", "WIND_ACTUAL"].includes(row.periodDividendSource)) {
       throw new Error(`期内分红来源与指数不匹配：${row.contract}`);
+    }
+    if (row.periodDividendSource === "WIND_ACTUAL" && !["IC", "IM"].includes(row.prefix)) {
+      throw new Error(`Wind实际分红只能用于IC/IM：${row.contract}`);
     }
     if (row.spotPrice !== null && row.futuresPrice !== null && row.basis !== null) {
       const expected = Number(row.futuresPrice) - Number(row.spotPrice);
@@ -97,26 +100,35 @@ function applyTheme(theme) {
 }
 
 function validMetricDates() {
-  // The selectable interval is the stable Wind history window, not the first
+  // The selectable interval spans preserved Wind history plus RQ fallback.
   // non-null observation of the currently selected metric. Dividend-adjusted
   // fields can therefore remain blank before their source began without moving
-  // the date picker or hiding earlier Wind history.
+  // the date picker or hiding earlier Ricequant history.
   return [...new Set(state.payload.rows
-    .filter((row) => row.dataSource === "Wind 日频" && row.date)
+    .filter((row) => ["Wind 日频", "米筐日频"].includes(row.dataSource) && row.date)
     .map((row) => row.date))]
     .sort();
 }
 
-function resetDateRangeForMetric() {
+function updateDateRangeBounds({ reset = false } = {}) {
   const dates = validMetricDates();
-  state.startDate = dates[0] || "";
-  state.endDate = dates[dates.length - 1] || "";
+  const minimum = dates[0] || "";
+  const maximum = dates[dates.length - 1] || "";
+  if (reset || !state.startDate) state.startDate = minimum;
+  if (reset || !state.endDate) state.endDate = maximum;
+  if (minimum && state.startDate < minimum) state.startDate = minimum;
+  if (maximum && state.startDate > maximum) state.startDate = maximum;
+  if (minimum && state.endDate < minimum) state.endDate = minimum;
+  if (maximum && state.endDate > maximum) state.endDate = maximum;
+  if (state.startDate && state.endDate && state.startDate > state.endDate) {
+    state.startDate = state.endDate;
+  }
   byId("start-date").value = state.startDate;
   byId("end-date").value = state.endDate;
-  byId("start-date").min = dates[0] || "";
-  byId("start-date").max = dates[dates.length - 1] || "";
-  byId("end-date").min = dates[0] || "";
-  byId("end-date").max = dates[dates.length - 1] || "";
+  byId("start-date").min = minimum;
+  byId("start-date").max = maximum;
+  byId("end-date").min = minimum;
+  byId("end-date").max = maximum;
 }
 
 function renderChips() {
@@ -144,7 +156,7 @@ function renderChips() {
 }
 
 function latestRows() {
-  const eligible = filteredRows().filter((row) => row.dataSource === "Wind 日频");
+  const eligible = filteredRows().filter((row) => ["Wind 日频", "米筐日频"].includes(row.dataSource));
   const dates = eligible.map((row) => row.date).sort();
   const latestDate = dates[dates.length - 1] || "";
   return eligible
@@ -163,7 +175,7 @@ function renderCards(rows) {
       && nearest.spotChangePct !== null && nearest.spotChangePct !== undefined;
     const spotMove = spotMoveAvailable
       ? `指数 ${fmt(nearest.spotChange, 2, true)} · ${fmtPercent(nearest.spotChangePct, 2, true)}`
-      : "指数日涨跌等待 Wind";
+      : "指数日涨跌等待数据";
     return `<article class="index-card">
       <div class="card-top"><h3>${INDEX_NAMES[prefix]}</h3><span class="prefix-badge">${prefix}</span></div>
       <span class="eyebrow">现货指数</span>
@@ -181,24 +193,23 @@ function renderCards(rows) {
 function renderTable(rows) {
   const body = byId("latest-table-body");
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="13" class="empty-cell">等待 Windows 采集机发布首批数据</td></tr>';
+    body.innerHTML = '<tr><td colspan="12" class="empty-cell">等待 Windows 采集机发布首批数据</td></tr>';
     return;
   }
   body.innerHTML = rows.map((row) => `<tr>
     <td>${DETAIL_PREFIXES.has(row.prefix) && DETAIL_TERMS.has(row.term)
       ? `<button type="button" class="contract-link" data-detail-prefix="${row.prefix}"
           data-detail-term="${row.term}" title="查看 ${row.prefix} ${row.term}合约详情">${escapeHtml(row.contract)}</button>`
-      : `<strong>${escapeHtml(row.contract)}</strong>`}<small>${escapeHtml(row.term)}</small></td>
+      : `<strong>${escapeHtml(row.contract)}</strong>`}<small>${escapeHtml(row.term)} · ${escapeHtml(row.dataSource)}</small></td>
     <td>${fmt(row.futuresPrice)}</td>
     <td class="${valueClass(row.priceChange)}">${fmt(row.priceChange, 2, true)}</td>
     <td class="${valueClass(row.priceChangePct)}">${fmtPercent(row.priceChangePct, 2, true)}</td>
     <td class="${valueClass(row.basis)}">${fmt(row.basis, 2, true)}</td>
-    <td class="${valueClass(row.premiumDiscountRatePct)}">${fmtPercent(row.premiumDiscountRatePct, 4, true)}</td>
     <td class="${valueClass(row.premiumDiscountChangePct)}">${fmtPercent(row.premiumDiscountChangePct, 2, true)}</td>
     <td class="adjusted ${valueClass(row.adjustedPremiumDiscountChangePct)}">${fmtPercent(row.adjustedPremiumDiscountChangePct, 2, true)}</td>
     <td>${fmtPercent(row.annualizedRate, 2, true)}</td>
     <td class="adjusted">${fmtPercent(row.adjustedAnnualizedRate, 2, true)}</td>
-    <td class="${row.periodDividendSource === "RQ_FORECAST" ? "dividend-rq" : "dividend-wind"}">
+    <td class="${row.periodDividendSource === "RQ_FORECAST" ? "dividend-rq" : row.periodDividendSource === "WIND_ACTUAL" ? "dividend-wind" : ""}">
       ${fmt(row.periodDividend, 4)}<small class="source-mini">${escapeHtml(row.periodDividendSourceLabel || "")}</small></td>
     <td>${escapeHtml(row.remainingDays)}</td>
     <td>${escapeHtml(row.expiryDate)}</td>
@@ -230,7 +241,7 @@ function contractDetailTable(rows) {
     <td class="adjusted ${valueClass(row.adjustedPremiumDiscountChangePct)}">${fmtPercent(row.adjustedPremiumDiscountChangePct, 2, true)}</td>
     <td>${fmtPercent(row.annualizedRate, 2, true)}</td>
     <td class="adjusted">${fmtPercent(row.adjustedAnnualizedRate, 2, true)}</td>
-    <td class="${row.periodDividendSource === "RQ_FORECAST" ? "dividend-rq" : "dividend-wind"}">
+    <td class="${row.periodDividendSource === "RQ_FORECAST" ? "dividend-rq" : row.periodDividendSource === "WIND_ACTUAL" ? "dividend-wind" : ""}">
       ${fmt(row.periodDividend, 4)}<small class="source-mini">${escapeHtml(row.periodDividendSourceLabel || "")}</small></td>
     <td>${escapeHtml(row.remainingDays)}</td>
   </tr>`).join("");
@@ -241,7 +252,7 @@ function contractDetailTable(rows) {
       <col style="width:10.5%"><col style="width:8%"><col style="width:10%"><col style="width:7.5%">
       <col style="width:6%"></colgroup><thead><tr>
       <th>日期</th><th>实际合约</th><th>合约价格</th><th>合约涨跌幅</th><th>基差</th>
-      <th>升贴水率</th><th>升贴水率变动</th>
+      <th>非年化升贴水率</th><th>升贴水率变动</th>
       <th>升贴水率变动<br>累计值</th>
       <th class="adjusted">升贴水率变动<br>（剔除期内分红）</th><th>年化升贴水率</th>
       <th class="adjusted">剔除分红年化率</th><th>期内分红</th><th>剩余天数</th>
@@ -282,7 +293,7 @@ function contractDetailChart(rows, metricKey, prefix, term) {
       `合约价格 ${fmt(row.futuresPrice, 2)}`,
       `合约涨跌幅 ${fmtPercent(row.priceChangePct, 2, true)}`,
       `基差 ${fmt(row.basis, 2, true)}`,
-      `升贴水率 ${fmtPercent(row.premiumDiscountRatePct, 4, true)}`,
+      `非年化升贴水率 ${fmtPercent(row.premiumDiscountRatePct, 4, true)}`,
       `升贴水率变动 ${fmtPercent(row.premiumDiscountChangePct, 2, true)}`,
       `升贴水率变动（剔除期内分红） ${fmtPercent(row.adjustedPremiumDiscountChangePct, 2, true)}`,
       `年化升贴水率 ${fmtPercent(row.annualizedRate, 2, true)}`,
@@ -328,7 +339,7 @@ function renderContractDetail() {
   }
   const detailTitle = `${prefix} ${term}合约详情`;
   let rows = state.payload.rows.filter((row) => row.prefix === prefix && row.term === term
-      && row.dataSource === "Wind 日频"
+      && ["Wind 日频", "米筐日频"].includes(row.dataSource)
       && (!state.startDate || row.date >= state.startDate)
       && (!state.endDate || row.date <= state.endDate))
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -340,7 +351,7 @@ function renderContractDetail() {
     section.hidden = false;
     section.innerHTML = `<div class="detail-head"><div><span class="section-kicker">CONTRACT DRILL-DOWN</span>
       <h3>${detailTitle}</h3>
-      <p>当前日期区间没有Wind日频数据，请扩大上方日期区间。</p></div>
+      <p>当前日期区间没有Wind历史或米筐回退数据，请扩大上方日期区间。</p></div>
       <button id="close-contract-detail" type="button" class="detail-close">收起 ×</button></div>`;
     byId("close-contract-detail").addEventListener("click", () => {
       state.detailScope = null;
@@ -354,7 +365,7 @@ function renderContractDetail() {
   const contracts = [...new Set(rows.map((row) => row.contract))].join("、");
   section.innerHTML = `<div class="detail-head"><div><span class="section-kicker">CONTRACT DRILL-DOWN</span>
     <h3>${detailTitle}</h3>
-    <p>${rows.length} 个 Wind 日频观测；涉及合约：${escapeHtml(contracts)}。${term}合约换月时自动衔接；调整日期区间会同步刷新本图和明细表，并将新区间首个累计值重新归一化为1。IH/IF分红为米筐预测，IC/IM为Wind实际/已公告分红计算。</p></div>
+    <p>${rows.length} 个日频观测；涉及合约：${escapeHtml(contracts)}。${term}合约换月时自动衔接；调整日期区间会同步刷新本图和明细表，并将新区间首个累计值重新归一化为1。黑色分红为已有Wind实际/已公告值，红色为米筐预测。</p></div>
     <div class="detail-actions"><select id="detail-metric-select" aria-label="${prefix}${term}详情图指标">${options}</select>
     <button id="close-contract-detail" type="button" class="detail-close">收起 ×</button></div></div>
     ${contractDetailChart(rows, state.detailMetric, prefix, term)}${contractDetailTable(rows)}`;
@@ -377,7 +388,7 @@ function filteredRows() {
     && state.terms.has(row.term)
     && (!state.startDate || row.date >= state.startDate)
     && (!state.endDate || row.date <= state.endDate)
-    && (state.metric === "adjustedAnnualizedRate" || row.dataSource === "Wind 日频")
+    && ["Wind 日频", "米筐日频"].includes(row.dataSource)
   );
 }
 
@@ -556,7 +567,7 @@ function showChartTooltip(point, event = null, pin = false) {
   tooltip.textContent = `${point.dataset.date} · ${point.dataset.term} · `
     + `${metricLabel} ${point.dataset.value}`
     + (point.dataset.contract ? ` · 合约 ${point.dataset.contract}` : "")
-    + (point.dataset.rate ? ` · 升贴水率 ${point.dataset.rate}` : "")
+    + (point.dataset.rate ? ` · 非年化升贴水率 ${point.dataset.rate}` : "")
     + (point.dataset.details ? ` · ${point.dataset.details}` : "");
   tooltip.hidden = false;
 
@@ -681,7 +692,7 @@ async function loadData() {
     const payload = await response.json();
     validatePayload(payload);
     state.payload = payload;
-    resetDateRangeForMetric();
+    updateDateRangeBounds({ reset: true });
     byId("status-dot").className = payload.rows.length ? "status-dot live" : "status-dot";
     byId("status-text").textContent = payload.rows.length ? "数据已同步" : "等待首次发布";
     if (!payload.rows.length) {
@@ -711,7 +722,9 @@ function bindEvents() {
   });
   byId("metric-select").addEventListener("change", (event) => {
     state.metric = event.target.value;
-    // Preserve the user-selected date range when switching chart metrics.
+    // Keep the user's chosen date interval when switching the lower chart.
+    // Only clamp it when the new metric genuinely has a narrower range.
+    updateDateRangeBounds();
     renderAll();
   });
 }
@@ -722,5 +735,3 @@ document.addEventListener("DOMContentLoaded", () => {
   renderChips();
   loadData();
 });
-
-console.log("%c crafted by cathyfukq ", "color:#9aa0a6;font-style:italic;");
